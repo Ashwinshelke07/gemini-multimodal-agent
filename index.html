@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gemini Multimodal Image Analyzer — Demo</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --muted:#9aa6b2; --accent:#06b6d4; --glass: rgba(255,255,255,0.03);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body{height:100%;}
+    body{
+      margin:0; background:linear-gradient(180deg,#071026 0%, #081429 60%); color:#e6eef6;
+      display:flex; align-items:center; justify-content:center; padding:28px;
+    }
+    .app {
+      width:100%; max-width:980px; background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+      border-radius:14px; padding:22px; box-shadow: 0 10px 30px rgba(2,6,23,0.7);
+      border:1px solid rgba(255,255,255,0.03);
+    }
+    header{display:flex; gap:12px; align-items:center; margin-bottom:18px;}
+    header h1{font-size:18px;margin:0}
+    header p{margin:0;color:var(--muted); font-size:13px}
+    .grid{display:grid; grid-template-columns: 1fr 360px; gap:14px}
+    .card{background:var(--card); padding:14px; border-radius:10px; border:1px solid var(--glass)}
+    label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+    input[type="file"]{display:block}
+    textarea{width:100%; min-height:84px; resize:vertical; font-family:inherit; background:#071226; border:1px solid rgba(255,255,255,0.03); color: #dfeefc; padding:8px; border-radius:8px}
+    .controls{display:flex; gap:8px; align-items:center; margin-top:10px}
+    button{
+      background: linear-gradient(180deg,var(--accent), #0891b2); border: none; color:#012027; font-weight:600;
+      padding:10px 12px; border-radius:8px; cursor:pointer;
+      box-shadow: 0 6px 18px rgba(3,105,118,0.12);
+    }
+    .btn-ghost{background:transparent; color:var(--muted); border:1px solid rgba(255,255,255,0.03); box-shadow:none}
+    .small{padding:8px 10px; font-size:13px}
+    .output{white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace; background:#05101a; padding:12px; border-radius:8px; color:#cfeff6; max-height:520px; overflow:auto}
+    .meta{font-size:13px; color:var(--muted)}
+    .preview{display:block; max-height:240px; width:auto; border-radius:8px; margin-top:8px; border:1px solid rgba(255,255,255,0.03)}
+    .row{display:flex; gap:8px; align-items:center; margin-top:8px}
+    footer{margin-top:12px; color:var(--muted); font-size:13px}
+    .mode-toggle{display:flex; gap:6px; margin-top:8px}
+    .chip{background:rgba(255,255,255,0.02); padding:6px 8px; border-radius:999px; font-size:12px; color:var(--muted)}
+    .success{color:#a7f3d0}
+  </style>
+</head>
+<body>
+  <div class="app" role="main">
+    <header>
+      <div>
+        <h1>Gemini Multimodal Image Analyzer</h1>
+        <p>Upload an image, run Gemini in AI Studio or via API, get summary + JSON + caption.</p>
+      </div>
+      <div style="margin-left:auto; text-align:right">
+        <div class="chip">Multimodal • Image + Text • JSON output</div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- LEFT: Main controls -->
+      <div class="card">
+        <label for="file">Upload Image</label>
+        <input id="file" type="file" accept="image/*" />
+        <img id="preview" class="preview" alt="" style="display:none" />
+
+        <div style="margin-top:12px">
+          <label>System prompt (instructions to the agent)</label>
+          <textarea id="systemPrompt">
+You are a multimodal AI agent.
+Your job:
+1. Analyze any uploaded image.
+2. Read visible text inside the image.
+3. Extract key information.
+4. Summarize the content clearly.
+5. Answer questions about the image.
+6. Provide structured output in JSON format.
+
+Return your final output in 4 sections:
+- Summary
+- Key Insights
+- Extracted Data
+- Recommended Actions
+          </textarea>
+        </div>
+
+        <div style="margin-top:10px">
+          <label>User prompt (what to do with the image)</label>
+          <textarea id="userPrompt">
+Here is my input. Analyze it fully using the instructions.
+Generate:
+1. Summary
+2. Key insights
+3. Extracted data
+4. Recommendations
+
+After this, also tell:
+- Purpose of the image
+- Missing information or issues
+- Final conclusion
+          </textarea>
+        </div>
+
+        <div class="row">
+          <div style="flex:1">
+            <label for="apiKey">API Key (paste here for Browser SDK) — optional</label>
+            <input id="apiKey" type="password" style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.03); background:#071226; color:#e6eef6" placeholder="sk-..." />
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <div style="flex:1">
+            <label class="meta">Call method</label>
+            <div class="mode-toggle">
+              <button id="modeSdk" class="small" data-mode="sdk">Browser SDK (experimental)</button>
+              <button id="modeProxy" class="small btn-ghost" data-mode="proxy">Server Proxy (recommended)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls" style="margin-top:12px;">
+          <button id="runBtn">▶ Run analysis</button>
+          <button id="clearBtn" class="btn-ghost small">Clear</button>
+          <button id="copyPrompts" class="btn-ghost small">Copy Prompts</button>
+        </div>
+
+        <div style="margin-top:10px" class="meta">
+          <strong>Notes:</strong> For production, implement a server endpoint (recommended) that securely calls Gemini API. Browser use of API keys may be blocked by CORS or pose security risks.
+        </div>
+      </div>
+
+      <!-- RIGHT: Output column -->
+      <div>
+        <div class="card" style="margin-bottom:12px">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div><label class="meta">Output</label></div>
+            <div class="meta">Confidence: <span id="confScore">—</span></div>
+          </div>
+          <div id="output" class="output" aria-live="polite">No output yet. Upload an image and click Run.</div>
+        </div>
+
+        <div class="card" style="margin-top:8px">
+          <label class="meta">JSON Result (structured)</label>
+          <pre id="jsonOut" class="output">{} </pre>
+        </div>
+
+        <div class="card" style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+          <button id="downloadJson" class="small btn-ghost">Download JSON</button>
+          <button id="copyOutput" class="small btn-ghost">Copy Output</button>
+          <button id="copyJson" class="small btn-ghost">Copy JSON</button>
+        </div>
+
+        <footer>
+          Tip: If the Browser SDK fails (CORS/key issues), implement a simple proxy endpoint:
+          <pre style="background:#071226;padding:8px;border-radius:6px;color:var(--muted)">
+POST /api/analyze
+body: { apiKey: "...", systemPrompt: "...", userPrompt: "...", imageBase64: "..." }
+</pre>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Small helper utilities
+    function el(id){return document.getElementById(id)}
+    function fileToBase64(file){ return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = (e) => rej(e);
+      r.readAsDataURL(file);
+    })}
+
+    let selectedFile = null;
+    el('file').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if(!f) return;
+      selectedFile = f;
+      const dataUrl = await fileToBase64(f);
+      el('preview').src = dataUrl;
+      el('preview').style.display = 'block';
+    });
+
+    // Mode buttons
+    let mode = 'proxy'; // recommended
+    function setMode(m){
+      mode = m;
+      if(m === 'sdk'){
+        el('modeSdk').style.background = 'linear-gradient(180deg,var(--accent), #0891b2)';
+        el('modeSdk').style.color = '#012027';
+        el('modeProxy').classList.add('btn-ghost');
+        el('modeProxy').classList.remove('small');
+      } else {
+        el('modeProxy').style.background = 'linear-gradient(180deg,var(--accent), #0891b2)';
+        el('modeProxy').style.color = '#012027';
+        el('modeSdk').classList.add('btn-ghost');
+      }
+    }
+    el('modeSdk').addEventListener('click', () => setMode('sdk'));
+    el('modeProxy').addEventListener('click', () => setMode('proxy'));
+    setMode('proxy');
+
+    el('clearBtn').addEventListener('click', () => {
+      el('output').textContent = 'No output yet. Upload an image and click Run.';
+      el('jsonOut').textContent = '{}';
+      el('confScore').textContent = '—';
+      el('file').value = '';
+      el('preview').style.display = 'none';
+      selectedFile = null;
+    });
+
+    el('copyPrompts').addEventListener('click', () => {
+      const text = 'SYSTEM PROMPT:\\n' + el('systemPrompt').value + '\\n\\nUSER PROMPT:\\n' + el('userPrompt').value;
+      navigator.clipboard.writeText(text).then(() => alert('Prompts copied to clipboard'));
+    });
+
+    el('copyOutput').addEventListener('click', () => {
+      navigator.clipboard.writeText(el('output').textContent || '');
+      alert('Output copied');
+    });
+    el('copyJson').addEventListener('click', () => {
+      navigator.clipboard.writeText(el('jsonOut').textContent || '');
+      alert('JSON copied');
+    });
+    el('downloadJson').addEventListener('click', () => {
+      const blob = new Blob([el('jsonOut').textContent || ''], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'analysis.json'; document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    // Primary run button
+    el('runBtn').addEventListener('click', async () => {
+      if(!selectedFile){
+        alert('Please upload an image first.');
+        return;
+      }
+      const systemPrompt = el('systemPrompt').value.trim();
+      const userPrompt = el('userPrompt').value.trim();
+      el('output').textContent = 'Running analysis...';
+      el('jsonOut').textContent = '{}';
+      el('confScore').textContent = '—';
+
+      try {
+        const base64 = await fileToBase64(selectedFile);
+        const payload = {
+          systemPrompt, userPrompt, imageBase64: base64.split(',')[1]
+        };
+
+        if(mode === 'proxy'){
+          // Recommended: send to your server proxy that calls Gemini securely
+          // Implement /api/analyze on your server to accept this POST payload and call the Gemini API
+          const res = await fetch('/api/analyze', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload)
+          });
+          if(!res.ok) throw new Error('Server returned ' + res.status);
+          const data = await res.json();
+          // Expected JSON shape: { text: "...", structured: {...}, confidence: 95 }
+          el('output').textContent = data.text || JSON.stringify(data, null, 2);
+          el('jsonOut').textContent = JSON.stringify(data.structured || data.json || {}, null, 2);
+          el('confScore').textContent = (data.confidence || data.confScore || '—') + (typeof data.confidence === 'number' ? '%' : '');
+          return;
+        }
+
+        // mode === 'sdk' (experimental): try direct browser SDK call
+        const apiKey = el('apiKey').value.trim();
+        if(!apiKey){
+          alert('Put your API key in the API Key box to use the Browser SDK, or switch to Server Proxy mode.');
+          throw new Error('Missing API key for SDK mode');
+        }
+
+        // Dynamic import of the official SDK (if available for browser)
+        el('output').textContent = 'Loading browser SDK (experimental)...';
+        // NOTE: this import and usage is hypothetical and may require a real browser-compatible SDK and CORS allowances.
+        const { GoogleGenerativeAI } = await import('https://esm.sh/@google/generative-ai@latest');
+        const client = new GoogleGenerativeAI({ apiKey }); // adapt to actual SDK constructor if different
+
+        el('output').textContent = 'Sending request to Gemini (browser)...';
+
+        // Example usage pattern — replace below with actual SDK method names if different.
+        // This block attempts to pass an image and text prompts to the generative model.
+        // If your SDK uses different function names/parameters, adapt accordingly.
+        const model = client.getGenerativeModel ? client.getGenerativeModel({ model: 'gemini-2.0-flash' }) : client.model?.('gemini-2.0-flash') || client;
+        // Many SDKs use generate() or generateContent(); adapt if necessary.
+        const request = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+          { type: 'image', content: { mimeType: selectedFile.type, data: base64.split(',')[1] } }
+        ];
+
+        // Attempt to call a generic generateContent API (this will vary in real SDKs)
+        if(typeof model.generateContent === 'function') {
+          const result = await model.generateContent(request);
+          const outText = result?.response?.text || JSON.stringify(result, null, 2);
+          el('output').textContent = outText;
+          // Try to extract JSON from output
+          const jsonMatch = outText.match(/\\{[\\s\\S]*\\}/);
+          if(jsonMatch) el('jsonOut').textContent = JSON.stringify(JSON.parse(jsonMatch[0]), null, 2);
+          return;
+        } else if(typeof client.generate === 'function') {
+          const result = await client.generate({ model: 'gemini-2.0-flash', input: request });
+          const outText = result?.output || JSON.stringify(result, null, 2);
+          el('output').textContent = outText;
+          return;
+        } else {
+          throw new Error('Browser SDK appears incompatible in this environment. Use a server proxy instead.');
+        }
+
+      } catch(err){
+        console.error(err);
+        el('output').textContent = 'Error: ' + (err.message || err.toString());
+        el('jsonOut').textContent = '{}';
+        el('confScore').textContent = '—';
+      }
+    });
+
+    // Helpful example server-side pseudo-code (Node/Express)
+    // Use this on your server as /api/analyze to securely call Gemini API with your server-side key.
+    /* 
+    POST /api/analyze
+    body: { systemPrompt, userPrompt, imageBase64 }
+    server code (Node.js + fetch):
+    --------------------------------
+    import express from 'express';
+    import fetch from 'node-fetch';
+    const app = express();
+    app.use(express.json({limit:'10mb'}));
+    app.post('/api/analyze', async (req,res)=>{
+      const { systemPrompt, userPrompt, imageBase64 } = req.body;
+      try{
+        // Call Gemini Generative API here: the exact request shape depends on the Gemini API version.
+        // PSEUDO:
+        const response = await fetch('https://generativeai.googleapis.com/v1beta/models/gemini-2.0-flash:generate', {
+          method:'POST',
+          headers: {
+            'Content-Type':'application/json',
+            'Authorization': `Bearer ${process.env.GEN_API_KEY}`
+          },
+          body: JSON.stringify({
+            // adapt to actual API
+            prompt: [
+              { role:'system', content: systemPrompt },
+              { role:'user', content: userPrompt },
+              { type:'image', mimeType:'image/jpeg', data: imageBase64 }
+            ],
+            // additional params...
+          })
+        });
+        const data = await response.json();
+        // Process data to extract text + structured JSON
+        // For demo, return raw.
+        res.json({ text: JSON.stringify(data, null, 2), structured: data });
+      } catch(e){
+        res.status(500).json({ error: e.message });
+      }
+    });
+    --------------------------------
+    */
+
+  </script>
+</body>
+</html>
